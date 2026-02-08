@@ -1,7 +1,10 @@
 # ETL RF Matrix Controller
 Portable software to control ETL RF Matrix routers.
 
+<img width="256" height="256" alt="icon_1024" src="https://github.com/user-attachments/assets/12a2a9fb-587b-40e3-8eba-e10fe8b47e79" />
+
 ## Usage
+
 
 When you open the application for the first time you will be greeted with an initial setup wizard. Here you can put the IP address of your router as well as the number of input and outputs. When you click "Continue" the program will generate the routable matrix.
 
