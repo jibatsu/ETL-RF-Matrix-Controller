@@ -1,0 +1,1 @@
+python -m PyInstaller --onefile --windowed --name "ETL Controller" --icon icon_1024.ico --add-data "icon_1024.ico;." etl_vortex_controller.py
