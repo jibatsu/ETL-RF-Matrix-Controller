@@ -154,7 +154,7 @@ class RouterConfig:
     label_font_size: int = 10
     button_font_family: str = "Helvetica"
     button_font_size: int = 9
-    active_route_color: str = "#d1f600"
+    active_route_color: str = "#83f600"
     dark_theme: bool = True  # True = dark theme, False = light theme
     # Crosshair hover effect
     crosshair_enabled: bool = False
@@ -239,7 +239,7 @@ class RouterConfig:
             label_font_size=d.get('label_font_size', 10),
             button_font_family=d.get('button_font_family', 'Helvetica'),
             button_font_size=d.get('button_font_size', 9),
-            active_route_color=d.get('active_route_color', '#d1f600'),
+            active_route_color=d.get('active_route_color', "#83f600"),
             dark_theme=d.get('dark_theme', True),
             crosshair_enabled=d.get('crosshair_enabled', False),
             crosshair_luminance_shift=d.get('crosshair_luminance_shift', 20),
@@ -371,20 +371,22 @@ class ETLProtocol:
         
         The checksum is based on the sum of individual digits in the
         3-digit output and input numbers, plus 106, with wrapping.
+        When value > 126, wrap to ASCII 32+ (space and punctuation).
         """
         # Format as 3-digit strings
         out_str = f"{output_num:03d}"
         inp_str = f"{input_num:03d}"
         
-        # Sum the individual digit values (not ASCII, the actual digit values)
+        # Sum the individual digit values
         digit_sum = sum(int(d) for d in out_str + inp_str)
         
         # Calculate checksum
         val = 106 + digit_sum
         
-        # Wrap if needed (stay in printable ASCII range)
-        while val > 126:
-            val -= 18
+        # Wrap to stay in printable ASCII range
+        # When > 126, wrap to 32+ (space, !, ", etc.)
+        if val > 126:
+            val = val - 95  # 127 -> 32, 128 -> 33, etc.
         
         return chr(val)
 
@@ -751,7 +753,7 @@ class SettingsDialog(QDialog):
         layout.addWidget(matrix_group)
 
         # Advanced: Custom ranges
-        advanced_group = QGroupBox("Advanced: Custom Input/Output Ranges")
+        advanced_group = QGroupBox("Custom Input/Output Ranges")
         advanced_layout = QVBoxLayout()
         
         self.use_custom_check = QCheckBox("Use custom ranges instead of sequential numbering")
@@ -797,7 +799,7 @@ class SettingsDialog(QDialog):
         self._update_range_preview()
 
         # Label font group
-        label_font_group = QGroupBox("Label Font (Headers & Row Labels)")
+        label_font_group = QGroupBox("Label Font (Headers and Row Labels)")
         label_font_layout = QFormLayout()
         
         self.label_font_combo = QComboBox()
@@ -2022,7 +2024,7 @@ class MatrixWidget(QWidget):
                 btn.set_color(color, text_color, dark_theme, 
                              highlight_right=True, highlight_bottom=True,
                              highlight_border=selection_border,
-                             luminance_shift=total_lum_shift + 15)
+                             luminance_shift=total_lum_shift + 20)
             else:
                 btn.set_color(color, text_color, dark_theme, 
                              highlight_right=highlight_right, 
@@ -2189,9 +2191,9 @@ class MainWindow(QMainWindow):
         self.toolbar_buttons['fit'] = fit_action
         self.toolbar_button_widgets['fit'] = fit_btn
         
-        self.toolbar.addSeparator()
+        #self.toolbar.addSeparator()
         self.hint_label = QLabel("")
-        self.hint_label.setStyleSheet("color: blue; padding: 0 10px;")
+        self.hint_label.setStyleSheet("padding: 0 10px;")  # Color set by _apply_theme
         self.toolbar.addWidget(self.hint_label)
         
         spacer = QWidget()
@@ -2745,7 +2747,7 @@ class MainWindow(QMainWindow):
             "• Right-click headers to rename/color/ungroup\n"
             "• Right-click input labels to rename or adjust brightness\n"
             "• Click buttons to route, Ctrl/Shift+click to multi-select\n"
-            "• Press Enter to route selected, Escape to clear selection\n"
+            "  - Press Enter to route selected, Escape to clear selection\n"
             "• Use Presets to save and recall routing configurations\n"
             "• Use Compact mode for large matrices\n"
             "• Green/red indicator shows router connection status")
@@ -2788,6 +2790,11 @@ class MainWindow(QMainWindow):
         
         app.setPalette(palette)
         
+        # Update hint label color based on theme
+        if hasattr(self, 'hint_label') and self.hint_label:
+            hint_color = "#f0f0f0" if self.config.dark_theme else "#535353"
+            self.hint_label.setStyleSheet(f"color: {hint_color}; padding: 0 10px;")
+
         # Rebuild matrix to apply theme to buttons
         if self.matrix_widget:
             self.matrix_widget.rebuild()
