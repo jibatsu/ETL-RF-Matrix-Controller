@@ -6,7 +6,7 @@ Portable software to control ETL RF Matrix routers.
 ## Usage
 
 
-When you open the application for the first time you will be greeted with an initial setup wizard. Here you can put the IP address of your router as well as the number of input and outputs. When you click "Continue" the program will generate the routable matrix.
+When you open the application for the first time you will be greeted with an initial setup wizard. Here you can input the IP address of your router as well as the number of input and outputs. When you click "Continue" the program will generate the routable matrix.
 
 From here you can click on the input labels on the left hand side to rename the labels and buttons. Across the top you can click on outputs to merge them into groups, rename and recolour the columns for easy differentiation.
 
