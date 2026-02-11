@@ -83,29 +83,27 @@ def parse_range_string(range_str: str) -> List[int]:
 
 
 def format_range_string(numbers: List[int]) -> str:
-    """Convert a list of integers to a compact range string."""
+    """Convert a list of integers to a compact range string, preserving order."""
     if not numbers:
         return ""
     
-    numbers = sorted(set(numbers))
+    # Don't sort - preserve the original order
     ranges = []
-    start = numbers[0]
-    end = numbers[0]
-    
-    for n in numbers[1:]:
-        if n == end + 1:
-            end = n
+    i = 0
+    while i < len(numbers):
+        start = numbers[i]
+        end = start
+        
+        # Look for consecutive numbers
+        while i + 1 < len(numbers) and numbers[i + 1] == end + 1:
+            i += 1
+            end = numbers[i]
+        
+        if start == end:
+            ranges.append(str(start))
         else:
-            if start == end:
-                ranges.append(str(start))
-            else:
-                ranges.append(f"{start}-{end}")
-            start = end = n
-    
-    if start == end:
-        ranges.append(str(start))
-    else:
-        ranges.append(f"{start}-{end}")
+            ranges.append(f"{start}-{end}")
+        i += 1
     
     return ", ".join(ranges)
 
@@ -155,6 +153,9 @@ class RouterConfig:
     button_font_family: str = "Helvetica"
     button_font_size: int = 9
     active_route_color: str = "#83f600"
+    # Show numbers next to labels
+    show_input_numbers: bool = False
+    show_output_numbers: bool = False
     dark_theme: bool = True  # True = dark theme, False = light theme
     # Crosshair hover effect
     crosshair_enabled: bool = False
@@ -200,28 +201,49 @@ class RouterConfig:
             return self.custom_outputs
         return list(range(1, self.num_outputs + 1))
     
-    def get_display_groups(self) -> List[OutputGroup]:
-        """Get groups filtered for current display outputs, creating new ones as needed."""
-        outputs_to_show = set(self.get_outputs())
+    def get_display_groups(self) -> List['OutputGroup']:
+        """Get groups filtered for current display outputs, preserving custom order."""
+        outputs_to_show = self.get_outputs()  # Keep as list to preserve order
+        outputs_set = set(outputs_to_show)
         
         # Track which outputs are covered by existing groups
         covered_outputs = set()
-        display_groups = []
+        group_map = {}  # output -> group
         
         for group in self.output_groups:
-            # Filter to only outputs we're displaying
-            visible_outputs = [o for o in group.outputs if o in outputs_to_show]
-            if visible_outputs:
-                display_groups.append(OutputGroup(group.name, group.color, visible_outputs))
-                covered_outputs.update(visible_outputs)
+            for out in group.outputs:
+                if out in outputs_set:
+                    group_map[out] = group
+                    covered_outputs.add(out)
         
-        # Create individual groups for any outputs not in existing groups
-        uncovered = outputs_to_show - covered_outputs
-        for out in sorted(uncovered):
-            display_groups.append(OutputGroup(f"Out {out}", "#b0b0b0", [out]))
+        # Build display groups in the order of outputs_to_show
+        display_groups = []
+        current_group = None
+        current_outputs = []
         
-        # Sort groups by their first output number
-        display_groups.sort(key=lambda g: min(g.outputs) if g.outputs else 0)
+        for out in outputs_to_show:
+            if out in group_map:
+                group = group_map[out]
+                # Check if this continues the current group
+                if current_group is not None and current_group.name == group.name and current_group.color == group.color:
+                    current_outputs.append(out)
+                else:
+                    # Save previous group if any
+                    if current_outputs:
+                        display_groups.append(OutputGroup(current_group.name, current_group.color, current_outputs))
+                    current_group = group
+                    current_outputs = [out]
+            else:
+                # Uncovered output - save current group and add individual
+                if current_outputs:
+                    display_groups.append(OutputGroup(current_group.name, current_group.color, current_outputs))
+                    current_group = None
+                    current_outputs = []
+                display_groups.append(OutputGroup(f"Out {out}", "#b0b0b0", [out]))
+        
+        # Don't forget the last group
+        if current_outputs:
+            display_groups.append(OutputGroup(current_group.name, current_group.color, current_outputs))
         
         return display_groups
 
@@ -708,8 +730,17 @@ class SettingsDialog(QDialog):
         self._setup_ui()
 
     def _setup_ui(self):
+        
         layout = QVBoxLayout(self)
-
+        
+        # Create tab widget
+        tabs = QTabWidget()
+        layout.addWidget(tabs)
+        
+        # === ROUTER TAB ===
+        router_tab = QWidget()
+        router_layout = QVBoxLayout(router_tab)
+        
         # Connection group
         conn_group = QGroupBox("Connection")
         conn_layout = QFormLayout()
@@ -725,12 +756,11 @@ class SettingsDialog(QDialog):
         self.port_spin = QSpinBox()
         self.port_spin.setRange(1, 65535)
         self.port_spin.setValue(self.config.port)
-        conn_layout.addRow("Port:", self.port_spin)
         
         self.conn_status = QLabel("")
         conn_layout.addRow("", self.conn_status)
         conn_group.setLayout(conn_layout)
-        layout.addWidget(conn_group)
+        router_layout.addWidget(conn_group)
 
         # Matrix size group
         matrix_group = QGroupBox("Matrix Size")
@@ -750,7 +780,7 @@ class SettingsDialog(QDialog):
         self.detect_btn.clicked.connect(self._auto_detect)
         matrix_layout.addRow("", self.detect_btn)
         matrix_group.setLayout(matrix_layout)
-        layout.addWidget(matrix_group)
+        router_layout.addWidget(matrix_group)
 
         # Advanced: Custom ranges
         advanced_group = QGroupBox("Custom Input/Output Ranges")
@@ -761,8 +791,9 @@ class SettingsDialog(QDialog):
         self.use_custom_check.stateChanged.connect(self._toggle_custom_ranges)
         advanced_layout.addWidget(self.use_custom_check)
         
-        hint_label = QLabel("Specify ranges like: 1-16 or 49-64 or 1,3,5-10,20")
+        hint_label = QLabel("Specify ranges like: 1-16 or 49-64 or 1,3,5-10,20. Ranges can also be reordered e.g. 1-5,11-20,6-10")
         hint_label.setStyleSheet("color: gray; font-size: 10px;")
+        hint_label.setWordWrap(True)
         advanced_layout.addWidget(hint_label)
         
         ranges_form = QFormLayout()
@@ -783,52 +814,40 @@ class SettingsDialog(QDialog):
         
         advanced_layout.addLayout(ranges_form)
         
-        # Preview label
         self.range_preview = QLabel("")
         self.range_preview.setStyleSheet("color: #666;")
         advanced_layout.addWidget(self.range_preview)
         
-        # Connect for live preview
         self.custom_inputs_edit.textChanged.connect(self._update_range_preview)
         self.custom_outputs_edit.textChanged.connect(self._update_range_preview)
         
         advanced_group.setLayout(advanced_layout)
-        layout.addWidget(advanced_group)
+        router_layout.addWidget(advanced_group)
         
-        self._toggle_custom_ranges()
-        self._update_range_preview()
-
-        # Label font group
-        label_font_group = QGroupBox("Label Font (Headers and Row Labels)")
-        label_font_layout = QFormLayout()
+        router_layout.addStretch()
+        tabs.addTab(router_tab, "Router")
         
-        self.label_font_combo = QComboBox()
-        self.label_font_combo.addItems(["Helvetica", "Arial", "Verdana", "Tahoma", "Courier New", "Monaco", "Menlo"])
-        self.label_font_combo.setCurrentText(self.config.label_font_family)
-        label_font_layout.addRow("Family:", self.label_font_combo)
+        # === APPEARANCE TAB ===
+        appearance_tab = QWidget()
+        appearance_layout = QVBoxLayout(appearance_tab)
         
-        self.label_font_size = QSpinBox()
-        self.label_font_size.setRange(6, 24)
-        self.label_font_size.setValue(self.config.label_font_size)
-        label_font_layout.addRow("Size:", self.label_font_size)
-        label_font_group.setLayout(label_font_layout)
-        layout.addWidget(label_font_group)
-
-        # Button font group
-        btn_font_group = QGroupBox("Button Font")
-        btn_font_layout = QFormLayout()
+        # Theme selection
+        theme_group = QGroupBox("Theme")
+        theme_layout = QHBoxLayout()
+        theme_layout.addWidget(QLabel("Theme:"))
         
-        self.btn_font_combo = QComboBox()
-        self.btn_font_combo.addItems(["Helvetica", "Arial", "Verdana", "Tahoma", "Courier New", "Monaco", "Menlo"])
-        self.btn_font_combo.setCurrentText(self.config.button_font_family)
-        btn_font_layout.addRow("Family:", self.btn_font_combo)
+        self.dark_theme_radio = QRadioButton("Dark")
+        self.light_theme_radio = QRadioButton("Light")
+        if self.config.dark_theme:
+            self.dark_theme_radio.setChecked(True)
+        else:
+            self.light_theme_radio.setChecked(True)
         
-        self.btn_font_size = QSpinBox()
-        self.btn_font_size.setRange(6, 24)
-        self.btn_font_size.setValue(self.config.button_font_size)
-        btn_font_layout.addRow("Size:", self.btn_font_size)
-        btn_font_group.setLayout(btn_font_layout)
-        layout.addWidget(btn_font_group)
+        theme_layout.addWidget(self.dark_theme_radio)
+        theme_layout.addWidget(self.light_theme_radio)
+        theme_layout.addStretch()
+        theme_group.setLayout(theme_layout)
+        appearance_layout.addWidget(theme_group)
 
         # Active route color
         color_group = QGroupBox("Active Route Highlight")
@@ -845,25 +864,22 @@ class SettingsDialog(QDialog):
         color_layout.addWidget(self.color_btn)
         color_layout.addStretch()
         color_group.setLayout(color_layout)
-        layout.addWidget(color_group)
+        appearance_layout.addWidget(color_group)
 
-        # Theme selection
-        theme_group = QGroupBox("Appearance")
-        theme_layout = QHBoxLayout()
-        theme_layout.addWidget(QLabel("Theme:"))
+        # Label numbers
+        numbers_group = QGroupBox("Label Numbers")
+        numbers_layout = QVBoxLayout()
         
-        self.dark_theme_radio = QRadioButton("Dark")
-        self.light_theme_radio = QRadioButton("Light")
-        if self.config.dark_theme:
-            self.dark_theme_radio.setChecked(True)
-        else:
-            self.light_theme_radio.setChecked(True)
+        self.show_input_numbers_check = QCheckBox("Show input numbers column")
+        self.show_input_numbers_check.setChecked(self.config.show_input_numbers)
+        numbers_layout.addWidget(self.show_input_numbers_check)
         
-        theme_layout.addWidget(self.dark_theme_radio)
-        theme_layout.addWidget(self.light_theme_radio)
-        theme_layout.addStretch()
-        theme_group.setLayout(theme_layout)
-        layout.addWidget(theme_group)
+        self.show_output_numbers_check = QCheckBox("Show output numbers in group headers")
+        self.show_output_numbers_check.setChecked(self.config.show_output_numbers)
+        numbers_layout.addWidget(self.show_output_numbers_check)
+        
+        numbers_group.setLayout(numbers_layout)
+        appearance_layout.addWidget(numbers_group)
 
         # Hover/Crosshair settings
         crosshair_group = QGroupBox("Hover Effect")
@@ -871,16 +887,14 @@ class SettingsDialog(QDialog):
         
         crosshair_form = QFormLayout()
         
-        # Brightness shift applies to all hover (single cell or crosshair)
         self.crosshair_lum_spin = QSpinBox()
-        self.crosshair_lum_spin.setRange(-50, 50)  # Allow negative for darkening
+        self.crosshair_lum_spin.setRange(-50, 50)
         self.crosshair_lum_spin.setValue(self.config.crosshair_luminance_shift)
         self.crosshair_lum_spin.setSuffix("%")
         crosshair_form.addRow("Hover brightness:", self.crosshair_lum_spin)
         
         crosshair_layout.addLayout(crosshair_form)
         
-        # Crosshair-specific settings
         self.crosshair_check = QCheckBox("Enable crosshair (highlight full row and column)")
         self.crosshair_check.setChecked(self.config.crosshair_enabled)
         self.crosshair_check.stateChanged.connect(self._toggle_crosshair_settings)
@@ -901,18 +915,82 @@ class SettingsDialog(QDialog):
         
         crosshair_layout.addLayout(crosshair_border_form)
         crosshair_group.setLayout(crosshair_layout)
-        layout.addWidget(crosshair_group)
+        appearance_layout.addWidget(crosshair_group)
         
         self.crosshair_border_color = self.config.crosshair_border_color
-        self._toggle_crosshair_settings()
+        
+        appearance_layout.addStretch()
+        tabs.addTab(appearance_tab, "Appearance")
+        
+        # === FONTS TAB ===
+        fonts_tab = QWidget()
+        fonts_layout = QVBoxLayout(fonts_tab)
 
-        # Dialog buttons
+        # Matrix Label font group
+        label_font_group = QGroupBox("Matrix Labels (Headers and Row Labels)")
+        label_font_layout = QFormLayout()
+        
+        self.label_font_combo = QComboBox()
+        self.label_font_combo.addItems(["Helvetica", "Arial", "Verdana", "Tahoma", "Courier New", "Monaco", "Menlo"])
+        self.label_font_combo.setCurrentText(self.config.label_font_family)
+        self.label_font_combo.setEditable(True)
+        label_font_layout.addRow("Family:", self.label_font_combo)
+        
+        self.label_font_size = QSpinBox()
+        self.label_font_size.setRange(6, 24)
+        self.label_font_size.setValue(self.config.label_font_size)
+        label_font_layout.addRow("Size:", self.label_font_size)
+        label_font_group.setLayout(label_font_layout)
+        fonts_layout.addWidget(label_font_group)
+
+        # Matrix Button font group
+        btn_font_group = QGroupBox("Matrix Buttons")
+        btn_font_layout = QFormLayout()
+        
+        self.btn_font_combo = QComboBox()
+        self.btn_font_combo.addItems(["Helvetica", "Arial", "Verdana", "Tahoma", "Courier New", "Monaco", "Menlo"])
+        self.btn_font_combo.setCurrentText(self.config.button_font_family)
+        self.btn_font_combo.setEditable(True)
+        btn_font_layout.addRow("Family:", self.btn_font_combo)
+        
+        self.btn_font_size = QSpinBox()
+        self.btn_font_size.setRange(6, 24)
+        self.btn_font_size.setValue(self.config.button_font_size)
+        btn_font_layout.addRow("Size:", self.btn_font_size)
+        btn_font_group.setLayout(btn_font_layout)
+        fonts_layout.addWidget(btn_font_group)
+        
+        fonts_layout.addStretch()
+        tabs.addTab(fonts_tab, "Fonts")
+
+        # === DIALOG BUTTONS ===
         button_box = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
         button_box.accepted.connect(self.accept)
         button_box.rejected.connect(self.reject)
         layout.addWidget(button_box)
 
+        # Initialize states
         self.active_color = self.config.active_route_color
+        self._toggle_custom_ranges()
+        self._update_range_preview()
+        self._toggle_crosshair_settings()
+
+        # Style group box headers only (using font on title, not contents)
+        for group_box in self.findChildren(QGroupBox):
+            group_box.setStyleSheet("""
+                QGroupBox {
+                    font-weight: bold;
+                    font-size: 14px;
+                }
+                QGroupBox::title {
+                    subcontrol-origin: margin;
+                    padding: 0px 6px;
+                }
+                QGroupBox QWidget {
+                    font-weight: normal;
+                    font-size: 12px;
+                }
+            """)
 
     def _toggle_custom_ranges(self):
         enabled = self.use_custom_check.isChecked()
@@ -1016,6 +1094,8 @@ class SettingsDialog(QDialog):
             'use_custom_ranges': self.use_custom_check.isChecked(),
             'custom_inputs': parse_range_string(self.custom_inputs_edit.text()),
             'custom_outputs': parse_range_string(self.custom_outputs_edit.text()),
+            'show_input_numbers': self.show_input_numbers_check.isChecked(),
+            'show_output_numbers': self.show_output_numbers_check.isChecked(),
         }
 
 
@@ -1060,7 +1140,7 @@ class SetupWidget(QWidget):
         self.port_spin = QSpinBox()
         self.port_spin.setRange(1, 65535)
         self.port_spin.setValue(4000)
-        form.addRow("Port:", self.port_spin)
+        #form.addRow("Port:", self.port_spin)
 
         inputs_row = QHBoxLayout()
         self.inputs_spin = QSpinBox()
@@ -1594,12 +1674,40 @@ class MatrixWidget(QWidget):
             layout.addWidget(corner, 0, 0)
             start_col = 1
             start_row = 1
+            
+            # Input number column header (if enabled)
+            if self.config.show_input_numbers:
+                num_header = QLabel("#")
+                num_header.setFont(label_font)
+                num_header.setAlignment(Qt.AlignCenter)
+                num_header.setStyleSheet(
+                    f"background-color: {label_bg}; color: {label_text}; padding: 4px; "
+                    f"border-right: 1px solid {border_color}; border-bottom: 1px solid {border_color};"
+                )
+                layout.addWidget(num_header, 0, 1)
+                start_col = 2
 
             # Column headers using display groups
-            col = 1
+            col = 2 if self.config.show_input_numbers else 1
             for group_idx, group in enumerate(self.display_groups):
                 span = len(group.outputs)
-                header = QLabel(group.name)
+
+                if self.config.show_output_numbers:
+                    if len(group.outputs) == 1:
+                        header_text = f"{group.outputs[0]}: {group.name}"
+                    else:
+                        header_text = f"{min(group.outputs)}-{max(group.outputs)}: {group.name}"
+                else:
+                    header_text = group.name
+
+                if self.config.show_output_numbers:
+                    if len(group.outputs) == 1:
+                        header_text = f"{group.outputs[0]}: {group.name}"
+                    else:
+                        header_text = f"{min(group.outputs)}-{max(group.outputs)}: {group.name}"
+                else:
+                    header_text = group.name
+                header = QLabel(header_text)
                 header.setFont(label_font)
                 header.setAlignment(Qt.AlignCenter)
                 header.setCursor(Qt.PointingHandCursor)
@@ -1633,6 +1741,17 @@ class MatrixWidget(QWidget):
                 label.mousePressEvent = lambda e, i=inp: self._on_input_click(e, i)
                 layout.addWidget(label, row, 0)
                 self.input_labels[inp] = label
+                
+                # Input number column (if enabled)
+                if self.config.show_input_numbers:
+                    num_label = QLabel(str(inp))
+                    num_label.setFont(label_font)
+                    num_label.setAlignment(Qt.AlignCenter)
+                    num_label.setStyleSheet(
+                        f"background-color: {input_bg}; color: {label_text}; padding: 4px; "
+                        f"border-right: 1px solid {border_color}; border-bottom: 1px solid {border_color};"
+                    )
+                    layout.addWidget(num_label, row, 1)
 
             col = start_col
             for group in self.display_groups:
@@ -1655,7 +1774,9 @@ class MatrixWidget(QWidget):
                     col += 1
 
         if not compact_mode:
-            layout.setColumnStretch(0, 0)
+            layout.setColumnStretch(0, 0)  # Input label column - no stretch
+            if self.config.show_input_numbers:
+                layout.setColumnStretch(1, 0)  # Number column - no stretch
         for c in range(start_col, len(outputs) + start_col):
             layout.setColumnStretch(c, 1)
 
@@ -2355,6 +2476,8 @@ class MainWindow(QMainWindow):
             self.config.use_custom_ranges = values['use_custom_ranges']
             self.config.custom_inputs = values['custom_inputs']
             self.config.custom_outputs = values['custom_outputs']
+            self.config.show_input_numbers = values['show_input_numbers']
+            self.config.show_output_numbers = values['show_output_numbers']
 
             # Apply theme if changed
             if theme_changed:
