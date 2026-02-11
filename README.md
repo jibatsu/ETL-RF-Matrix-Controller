@@ -17,7 +17,7 @@ From here you can click on the input labels on the left hand side to rename the 
 - Resizable window
 - Highlight rows to differentiate inputs
 - Customisable fonts for labels and buttons
-- Customizable active route colours
+- Customizable active route colour
 - Toggle matrix crosshair
 - Route multiple points at a time
 - Save preset routes
