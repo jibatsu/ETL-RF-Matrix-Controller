@@ -26,7 +26,9 @@ From here you can click on the input labels on the left hand side to rename the 
 ## Installation from releases
 
 Go to [releases](https://github.com/jibatsu/ETL-RF-Matrix-Controller/releases) and download either Windows or OSX.
+
 Extract the executable file to your filesystem.
+
 Double click to run.
 
 ## Installation from sources
