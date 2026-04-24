@@ -1,12 +1,11 @@
 # ETL RF Matrix Controller
-Portable software to control ETL RF Matrix routers.
+Portable software to control ETL RF Matrices.
 
 <img width="256" height="256" alt="icon_1024" src="https://github.com/user-attachments/assets/12a2a9fb-587b-40e3-8eba-e10fe8b47e79" />
 
 ## Usage
 
-
-When you open the application for the first time you will be greeted with an initial setup wizard. Here you can input the IP address of your router as well as the number of input and outputs. When you click "Continue" the program will generate the routable matrix.
+When you open the application for the first time you will be greeted with an initial setup wizard. Here you can input the IP address of your router as well as the number of input and outputs. When you click "Connect" the program will generate the routable matrix.
 
 From here you can click on the input labels on the left hand side to rename the labels and buttons. Across the top you can click on outputs to merge them into groups, rename and recolour the columns for easy differentiation.
 
@@ -21,7 +20,14 @@ From here you can click on the input labels on the left hand side to rename the 
 - Toggle matrix crosshair
 - Route multiple points at a time
 - Save preset routes
+- Combine multiple routers into one large matrix
 - View matrix telemetry
+
+## Installation from releases
+
+Go to [releases](https://github.com/jibatsu/ETL-RF-Matrix-Controller/releases) and download either Windows or OSX.
+Extract the executable file to your filesystem.
+Double click to run.
 
 ## Installation from sources
 
@@ -38,7 +44,7 @@ You may need to install PyInstaller if not already installed.
 
 Run the following command 
 
-`python -m PyInstaller --onefile --windowed --name "ETL Controller" --icon icon_1024.ico --add-data "icon_1024.ico;." etl_vortex_controller.py`
+`python -m PyInstaller --onefile --windowed --name "ETL Controller" --icon icon_1024.ico --add-data "icon_1024.ico;." etl_controller.py`
 
 After the command has run you should see an "ETL Controller.exe" in the /dist folder.
 
