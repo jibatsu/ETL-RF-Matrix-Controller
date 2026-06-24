@@ -40,12 +40,21 @@ from PySide6.QtGui import QColor, QFont, QAction, QPalette, QTextCursor
 # Check for reset flag on startup
 if '--reset' in sys.argv:
     import platform
+    
+    # Determine profile
+    profile = 'default'
+    for arg in sys.argv[1:]:
+        if arg.startswith('--profile='):
+            profile = arg.split('=', 1)[1]
+    
+    filename = f"etl_config_{profile}.json"
+    
     if platform.system() == "Darwin":
-        config_path = os.path.expanduser("~/Library/Application Support/ETL RF Matrix Controller/etl_config.json")
+        config_path = os.path.expanduser(f"~/Library/Application Support/ETL RF Matrix Controller/{filename}")
     elif platform.system() == "Windows":
-        config_path = os.path.join(os.environ.get("APPDATA", ""), "ETL RF Matrix Controller", "etl_config.json")
+        config_path = os.path.join(os.environ.get("APPDATA", ""), "ETL RF Matrix Controller", filename)
     else:
-        config_path = os.path.expanduser("~/.config/etl-rf-matrix-controller/etl_config.json")
+        config_path = os.path.expanduser(f"~/.config/etl-rf-matrix-controller/{filename}")
     
     if os.path.exists(config_path):
         try:
@@ -2557,15 +2566,24 @@ class MainWindow(QMainWindow):
         """Get the path for the config file in a user-writable location."""
         import platform
         
-        if platform.system() == "Darwin":  # macOS
+        if platform.system() == "Darwin":
             config_dir = os.path.expanduser("~/Library/Application Support/ETL RF Matrix Controller")
         elif platform.system() == "Windows":
             config_dir = os.path.join(os.environ.get("APPDATA", ""), "ETL RF Matrix Controller")
-        else:  # Linux and others
+        else:
             config_dir = os.path.expanduser("~/.config/etl-rf-matrix-controller")
         
         os.makedirs(config_dir, exist_ok=True)
-        return os.path.join(config_dir, "etl_config.json")
+        
+        # Use instance ID from command line args if provided, otherwise default
+        instance_id = 'default'
+        for arg in sys.argv[1:]:
+            if arg.startswith('--instance='):
+                instance_id = arg.split('=', 1)[1]
+            elif arg.startswith('--profile='):
+                instance_id = arg.split('=', 1)[1]
+        
+        return os.path.join(config_dir, f"etl_config_{instance_id}.json")
 
     def _show_setup(self):
         self.resize(350, 450)
@@ -2588,10 +2606,17 @@ class MainWindow(QMainWindow):
                 self.additional_protocols.append(protocol)
         
         # Update window title with router name
+        profile = 'default'
+        for arg in sys.argv[1:]:
+            if arg.startswith('--profile='):
+                profile = arg.split('=', 1)[1]
         if self.config.router_name:
-            self.setWindowTitle(f"ETL RF Matrix Controller — {self.config.router_name}")
+            title = f"ETL RF Matrix Controller — {self.config.router_name}"
         else:
-            self.setWindowTitle("ETL RF Matrix Controller")
+            title = "ETL RF Matrix Controller"
+        if profile != 'default':
+            title += f" [{profile}]"
+        self.setWindowTitle(title)
         
         # Calculate size based on actual displayed inputs/outputs
         inputs = self.config.get_inputs()
@@ -3253,7 +3278,12 @@ class MainWindow(QMainWindow):
             import subprocess
             python = sys.executable
             script = os.path.abspath(sys.argv[0])
-            subprocess.Popen([python, script, '--reset'])
+            # Preserve profile argument through reset
+            reset_args = [python, script, '--reset']
+            for arg in sys.argv[1:]:
+                if arg.startswith('--profile='):
+                    reset_args.append(arg)
+            subprocess.Popen(reset_args)
             QApplication.quit()
 
     def _load_config(self):
@@ -3302,7 +3332,9 @@ class MainWindow(QMainWindow):
             "  - Press Enter to route selected, Escape to clear selection\n"
             "• Use Presets to save and recall routing configurations\n"
             "• Use Compact mode for large matrices\n"
-            "• Green/red indicator shows router connection status")
+            "• Green/red indicator shows router connection status\n"
+            "\n"
+            "Version 1.4")
 
     def _apply_theme(self):
         """Apply dark or light theme to the application."""
