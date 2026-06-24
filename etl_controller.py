@@ -41,26 +41,34 @@ from PySide6.QtGui import QColor, QFont, QAction, QPalette, QTextCursor
 if '--reset' in sys.argv:
     import platform
     
-    # Determine profile
-    profile = 'default'
+    if platform.system() == "Darwin":
+        config_dir = os.path.expanduser("~/Library/Application Support/ETL RF Matrix Controller")
+    elif platform.system() == "Windows":
+        config_dir = os.path.join(os.environ.get("APPDATA", ""), "ETL RF Matrix Controller")
+    else:
+        config_dir = os.path.expanduser("~/.config/etl-rf-matrix-controller")
+    
+    # Delete all config files or just the specified profile
+    profile = None
     for arg in sys.argv[1:]:
         if arg.startswith('--profile='):
             profile = arg.split('=', 1)[1]
     
-    filename = f"etl_config_{profile}.json"
-    
-    if platform.system() == "Darwin":
-        config_path = os.path.expanduser(f"~/Library/Application Support/ETL RF Matrix Controller/{filename}")
-    elif platform.system() == "Windows":
-        config_path = os.path.join(os.environ.get("APPDATA", ""), "ETL RF Matrix Controller", filename)
+    if profile:
+        config_path = os.path.join(config_dir, f"etl_config_{profile}.json")
+        if os.path.exists(config_path):
+            try:
+                os.remove(config_path)
+            except:
+                pass
     else:
-        config_path = os.path.expanduser(f"~/.config/etl-rf-matrix-controller/{filename}")
-    
-    if os.path.exists(config_path):
-        try:
-            os.remove(config_path)
-        except:
-            pass
+        # Reset default config only
+        config_path = os.path.join(config_dir, "etl_config_default.json")
+        if os.path.exists(config_path):
+            try:
+                os.remove(config_path)
+            except:
+                pass
 
 def parse_range_string(range_str: str) -> List[int]:
     """Parse a range string like '1-16' or '49-64' or '1,3,5-10' into a list of integers."""
@@ -116,6 +124,23 @@ def format_range_string(numbers: List[int]) -> str:
     
     return ", ".join(ranges)
 
+def random_pastel_color():
+    """Generate a random pastel colour as a hex string."""
+    import random
+    h = random.randint(0, 360)
+    s = random.randint(40, 65)
+    l = random.randint(65, 85)
+    # HSL to RGB
+    c = (1 - abs(2 * l / 100 - 1)) * s / 100
+    x = c * (1 - abs((h / 60) % 2 - 1))
+    m = l / 100 - c / 2
+    if h < 60:    r, g, b = c, x, 0
+    elif h < 120: r, g, b = x, c, 0
+    elif h < 180: r, g, b = 0, c, x
+    elif h < 240: r, g, b = 0, x, c
+    elif h < 300: r, g, b = x, 0, c
+    else:         r, g, b = c, 0, x
+    return f"#{int((r+m)*255):02x}{int((g+m)*255):02x}{int((b+m)*255):02x}"
 
 @dataclass
 class OutputGroup:
@@ -2173,7 +2198,7 @@ class MatrixWidget(QWidget):
             text=f"Group {merged_outputs[0]}-{merged_outputs[-1]}")
 
         if ok and name:
-            color = QColorDialog.getColor(QColor("#4a90d9"), self, "Group Colour")
+            color = QColorDialog.getColor(QColor(random_pastel_color()), self, "Group Colour")
             if color.isValid():
                 # Remove these outputs from any existing groups in main config
                 for group in self.config.output_groups[:]:
@@ -2562,7 +2587,7 @@ class MainWindow(QMainWindow):
         else:
             self._show_main()
 
-    def _get_config_path(self) -> str:
+    def _get_config_path(self, router_ip=None) -> str:
         """Get the path for the config file in a user-writable location."""
         import platform
         
@@ -2575,15 +2600,19 @@ class MainWindow(QMainWindow):
         
         os.makedirs(config_dir, exist_ok=True)
         
-        # Use instance ID from command line args if provided, otherwise default
-        instance_id = 'default'
+        # Check for explicit --profile argument first
         for arg in sys.argv[1:]:
-            if arg.startswith('--instance='):
+            if arg.startswith('--instance=') or arg.startswith('--profile='):
                 instance_id = arg.split('=', 1)[1]
-            elif arg.startswith('--profile='):
-                instance_id = arg.split('=', 1)[1]
+                return os.path.join(config_dir, f"etl_config_{instance_id}.json")
         
-        return os.path.join(config_dir, f"etl_config_{instance_id}.json")
+        # Use router IP if provided (after connection)
+        if router_ip:
+            safe_ip = router_ip.replace(':', '_')  # Handle ip:port
+            return os.path.join(config_dir, f"etl_config_{safe_ip}.json")
+        
+        # Default config (used during setup before connection)
+        return os.path.join(config_dir, "etl_config_default.json")
 
     def _show_setup(self):
         self.resize(350, 450)
@@ -2592,6 +2621,37 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(setup)
 
     def _on_setup_complete(self):
+        router_ip = self.config.ip_address
+        print(f"[DEBUG] _on_setup_complete: router_ip={router_ip}")
+        if router_ip:
+            new_config_file = self._get_config_path(router_ip=router_ip)
+            print(f"[DEBUG] new_config_file={new_config_file}")
+            print(f"[DEBUG] exists={os.path.exists(new_config_file)}")
+            print(f"[DEBUG] current config_file={self.config_file}")
+            print(f"[DEBUG] different={new_config_file != self.config_file}")
+            
+            if os.path.exists(new_config_file) and new_config_file != self.config_file:
+                try:
+                    with open(new_config_file, 'r') as f:
+                        saved = json.load(f)
+                    print(f"[DEBUG] loaded groups: {len(saved.get('output_groups', []))}")
+                    current_ip = self.config.ip_address
+                    current_port = self.config.port
+                    current_outputs = self.config.num_outputs
+                    current_inputs = self.config.num_inputs
+                    current_primary = self.config.primary_num_outputs
+                    self.config = RouterConfig.from_dict(saved)
+                    self.config.ip_address = current_ip
+                    self.config.port = current_port
+                    self.config.num_outputs = current_outputs
+                    self.config.num_inputs = current_inputs
+                    self.config.primary_num_outputs = current_primary
+                    print(f"[DEBUG] restored groups: {len(self.config.output_groups)}")
+                except Exception as e:
+                    print(f"[DEBUG] ERROR loading router config: {e}")
+            
+            self.config_file = new_config_file
+        
         self._save_config()
         self._show_main()
 
@@ -2605,17 +2665,11 @@ class MainWindow(QMainWindow):
                 protocol = ETLProtocol(router['ip'], router['port'])
                 self.additional_protocols.append(protocol)
         
-        # Update window title with router name
-        profile = 'default'
-        for arg in sys.argv[1:]:
-            if arg.startswith('--profile='):
-                profile = arg.split('=', 1)[1]
+        # Update window title with router name and IP
         if self.config.router_name:
             title = f"ETL RF Matrix Controller — {self.config.router_name}"
         else:
-            title = "ETL RF Matrix Controller"
-        if profile != 'default':
-            title += f" [{profile}]"
+            title = f"ETL RF Matrix Controller — {self.config.ip_address}"
         self.setWindowTitle(title)
         
         # Calculate size based on actual displayed inputs/outputs
@@ -3334,7 +3388,7 @@ class MainWindow(QMainWindow):
             "• Use Compact mode for large matrices\n"
             "• Green/red indicator shows router connection status\n"
             "\n"
-            "Version 1.4")
+            "Version 1.4.5")
 
     def _apply_theme(self):
         """Apply dark or light theme to the application."""
